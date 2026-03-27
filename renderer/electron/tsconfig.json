@@ -5,7 +5,9 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "types": ["node", "electron"],
-    "skipLibCheck": true
+    "skipLibCheck": true,
+
+    "rootDir": ".."
   },
-  "include": ["./**/*.ts"]
+  "include": ["./**/*.ts", "../src/types/**/*.ts"]
 }

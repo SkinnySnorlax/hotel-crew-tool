@@ -8,7 +8,6 @@ import {
   KeyboardSensor,
   useSensor,
   useSensors,
-  type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
   DragOverlay,
@@ -67,6 +66,26 @@ function SortableHandleCell({
       </span>
     </span>
   );
+}
+
+function getRowBucket(currentName: string): 'TECH' | 'CABIN' | 'NONE' {
+  const upper = currentName.toUpperCase().trim();
+
+  if (
+    upper === 'SINGAPORE AIRLINES TECH CREW' ||
+    upper === 'SINGAPORE AIRLINES TECH CREW (NIGHT)'
+  ) {
+    return 'TECH';
+  }
+
+  if (
+    upper === 'SINGAPORE AIRLINES CREW' ||
+    upper === 'SINGAPORE AIRLINES CREW (NIGHT)'
+  ) {
+    return 'CABIN';
+  }
+
+  return 'NONE';
 }
 
 export function ReviewPage({ rows, setRows, onConfirmApply, onBack }: Props) {
@@ -129,11 +148,23 @@ export function ReviewPage({ rows, setRows, onConfirmApply, onBack }: Props) {
     const id = String(event.active.id);
     setActiveId(id);
 
-    if (eligibleRowIds.includes(id)) {
-      dragLaneRef.current = eligibleRowIds.slice();
-    } else {
+    const activeRow = rows.find((r) => r.rowId === id);
+    if (!activeRow) {
       dragLaneRef.current = [];
+      lastOverRef.current = null;
+      return;
     }
+
+    const activeBucket = getRowBucket(activeRow.currentName);
+
+    dragLaneRef.current = rows
+      .filter(
+        (r) =>
+          r.apply &&
+          !!r.newName &&
+          getRowBucket(r.currentName) === activeBucket,
+      )
+      .map((r) => r.rowId);
 
     lastOverRef.current = null;
   };
@@ -154,7 +185,7 @@ export function ReviewPage({ rows, setRows, onConfirmApply, onBack }: Props) {
     reorderWithinLane(lane, activeRowId, overRowId);
   };
 
-  const handleDragEnd = (_event: DragEndEvent) => {
+  const handleDragEnd = () => {
     dragLaneRef.current = [];
     lastOverRef.current = null;
     setActiveId(null);
@@ -167,13 +198,18 @@ export function ReviewPage({ rows, setRows, onConfirmApply, onBack }: Props) {
   return (
     <div>
       <div style={{ padding: 16 }}>
-        <div style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
+        <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
           <button onClick={onBack} style={{ padding: 8 }}>
             Back
           </button>
           <button onClick={onConfirmApply} style={{ padding: 8 }}>
             Confirm Apply
           </button>
+          <span style={{ fontSize: 13, color: '#555' }}>
+            {rows.filter((r) => r.apply && !!r.newName).length} will be applied
+            {' · '}
+            {rows.filter((r) => !r.apply || !r.newName).length} will be skipped
+          </span>
         </div>
 
         <DndContext

@@ -3,7 +3,7 @@ import React from 'react';
 type StepKey = 'START' | 'REVIEW' | 'APPLY_RUNNING' | 'VERIFY' | 'DONE';
 
 type Props = {
-  step: string;
+  step: StepKey;
   title?: string;
   children: React.ReactNode;
 };
@@ -16,7 +16,7 @@ const STEPS: { key: StepKey; label: string }[] = [
   { key: 'DONE', label: 'Done' },
 ];
 
-function stepIndex(step: string) {
+function stepIndex(step: StepKey) {
   const idx = STEPS.findIndex((s) => s.key === step);
   return idx < 0 ? 0 : idx;
 }

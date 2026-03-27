@@ -1,8 +1,20 @@
+import React from 'react';
 import type { ProgressEvent } from '../types/progress';
+import type { MappingRow } from '../types/mapping';
+
+type VerifyRow = MappingRow & {
+  beforeName: string;
+  afterName: string | null;
+  result: 'UPDATED' | 'SKIPPED' | 'FAILED' | 'MISMATCH';
+  resultMessage?: string;
+};
 
 type Props = {
   events: ProgressEvent[];
+  verifyRows: VerifyRow[];
+  savedLogPath: string | null;
   onBackToStart: () => void;
+  onGenerateSheet: () => Promise<string | null>;
 };
 
 function downloadJson(filename: string, data: unknown) {
@@ -44,10 +56,24 @@ function extractResults(events: ProgressEvent[]): ResultRow[] {
     }));
 }
 
-export function DonePage({ events, onBackToStart }: Props) {
-  const updated = events.filter((e) => e.status === 'UPDATED').length;
-  const failed = events.filter((e) => e.status === 'FAILED').length;
-  const skipped = events.filter((e) => e.status === 'SKIPPED').length;
+export function DonePage({ events, verifyRows, savedLogPath, onBackToStart, onGenerateSheet }: Props) {
+  const [sheetPath, setSheetPath] = React.useState<string | null>(null);
+  const [generatingSheet, setGeneratingSheet] = React.useState(false);
+
+  const handleGenerateSheet = async () => {
+    setGeneratingSheet(true);
+    try {
+      const p = await onGenerateSheet();
+      setSheetPath(p);
+    } finally {
+      setGeneratingSheet(false);
+    }
+  };
+
+  const updated = verifyRows.filter((r) => r.result === 'UPDATED').length;
+  const failed = verifyRows.filter((r) => r.result === 'FAILED').length;
+  const skipped = verifyRows.filter((r) => r.result === 'SKIPPED').length;
+  const mismatch = verifyRows.filter((r) => r.result === 'MISMATCH').length;
 
   const results = extractResults(events);
   const last20 = events.slice(-20);
@@ -62,6 +88,7 @@ export function DonePage({ events, onBackToStart }: Props) {
           <div>✅ Updated: {updated}</div>
           <div>⚠️ Skipped: {skipped}</div>
           <div>❌ Failed: {failed}</div>
+          {mismatch > 0 && <div>🔀 Mismatch: {mismatch}</div>}
         </div>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -74,10 +101,24 @@ export function DonePage({ events, onBackToStart }: Props) {
             Download Log (JSON)
           </button>
 
+          <button
+            onClick={handleGenerateSheet}
+            disabled={generatingSheet}
+            style={{ padding: 10 }}
+          >
+            {generatingSheet ? 'Generating…' : 'Generate Sign-Off Sheet'}
+          </button>
+
           <button onClick={onBackToStart} style={{ padding: 10 }}>
             Back to Start
           </button>
         </div>
+
+        {sheetPath && (
+          <div style={{ fontSize: 12, color: '#555' }}>
+            Sign-off sheet saved to: <strong>{sheetPath}</strong>
+          </div>
+        )}
 
         <div
           style={{ border: '1px solid #ddd', borderRadius: 12, padding: 12 }}
@@ -170,10 +211,15 @@ export function DonePage({ events, onBackToStart }: Props) {
           </div>
         </div>
 
-        <div style={{ fontSize: 12, color: '#555' }}>
-          Note: In the Electron .exe version, logs will be saved to disk
-          automatically.
-        </div>
+        {savedLogPath ? (
+          <div style={{ fontSize: 12, color: '#555' }}>
+            Log saved to: <strong>{savedLogPath}</strong>
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: '#999' }}>
+            Log could not be saved automatically.
+          </div>
+        )}
       </div>
     </div>
   );

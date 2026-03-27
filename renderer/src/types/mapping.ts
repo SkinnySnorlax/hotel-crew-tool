@@ -7,6 +7,7 @@ export type MappingRow = {
   roomNo?: string | null;
   currentName: string;
   newName: string | null;
+  rank?: string;
   apply: boolean;
   status: RowStatus;
   message?: string;

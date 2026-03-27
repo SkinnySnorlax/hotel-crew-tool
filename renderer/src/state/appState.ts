@@ -13,6 +13,8 @@ export type AppStep =
 export type StartForm = {
   dateISO: string; // YYYY-MM-DD
   blockCode: string;
+  wakeUpCall: string;
+  departureTime: string;
   username: string;
   password: string;
   txtFile?: File;
@@ -20,15 +22,22 @@ export type StartForm = {
 
 export function useAppState() {
   const [step, setStep] = useState<AppStep>('START');
-  const [form, setForm] = useState<StartForm>({
-    dateISO: new Date().toISOString().slice(0, 10),
-    blockCode: '',
-    username: '',
-    password: '',
+  const [form, setForm] = useState<StartForm>(() => {
+    const d = new Date();
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = String(d.getFullYear()).slice(2);
+    return {
+      dateISO: d.toISOString().slice(0, 10),
+      blockCode: `C-SINA${dd}${mm}${yy}`,
+      wakeUpCall: '',
+      departureTime: '',
+      username: '',
+      password: '',
+    };
   });
 
   const [rows, setRows] = useState<MappingRow[]>([]);
-  const [error, setError] = useState<string>('');
 
   return useMemo(
     () => ({
@@ -38,9 +47,7 @@ export function useAppState() {
       setForm,
       rows,
       setRows,
-      error,
-      setError,
     }),
-    [step, form, rows, error],
+    [step, form, rows],
   );
 }

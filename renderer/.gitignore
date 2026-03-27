@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Electron compiled output (TypeScript sources in electron/ compile in-place)
+electron/main.js
+electron/apply/*.js
+electron/preview/*.js
+electron/electron-dist/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -2,9 +2,23 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import { parseTxt } from './preview/parseTxt.js';
+import { buildPreviewRows } from './preview/mapping.js';
+import { fetchOperaReservationsFromManageReservations } from './preview/operaFetch.js';
+import { loginToOpera } from './preview/operaLogin.js';
+import { navigateToManageBlock } from './preview/operaNavigateToManageBlock.js';
+import { openManageReservationsForBlock } from './preview/operaOpenManageReservations.js';
+import { parseOperaGuestName } from './apply/parseOperaGuestName.js';
+import { applyReservationNameInOpera } from './apply/operaApplyReservationName.js';
+const require = createRequire(import.meta.url);
+const keytar = require('keytar');
+const KEYTAR_SERVICE = 'hotel-crew-tool';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 let mainWindow = null;
+let activeSession = null;
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1200,
@@ -12,8 +26,7 @@ function createWindow() {
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,
-            sandbox: true,
-            preload: path.join(__dirname, 'preload.js'),
+            preload: path.join(__dirname, 'preload.cjs'),
         },
     });
     const isDev = !app.isPackaged;
@@ -38,17 +51,466 @@ app.on('window-all-closed', () => {
     if (process.platform !== 'darwin')
         app.quit();
 });
-/**
- * IPC: Preview Run (READ ONLY)
- * NOTE: This is a stub. We will wire Playwright later.
- */
 ipcMain.handle('previewRun', async (_event, req) => {
-    // DO NOT log credentials.
-    const { dateISO, blockCode } = req;
-    // Stub: return empty results for now (or mirror your mockPreviewRows if you want).
+    const { dateISO, blockCode, txtContent, username, password } = req;
+    const parsedTxt = parseTxt(txtContent);
+    const session = await loginToOpera({ username, password });
+    activeSession = session;
+    try {
+        await navigateToManageBlock(session.page);
+        await openManageReservationsForBlock(session.page, {
+            blockCode,
+        });
+        const reservations = await fetchOperaReservationsFromManageReservations(session.page);
+        const rows = buildPreviewRows(reservations.map((r) => ({
+            reservationId: r.reservationId,
+            roomNo: r.roomNo ?? null,
+            currentName: r.currentName,
+        })), parsedTxt);
+        return {
+            dateISO,
+            blockCode,
+            rows,
+        };
+    }
+    finally {
+        activeSession = null;
+        await session.browser.close().catch(() => { });
+    }
+});
+ipcMain.handle('applyRun', async (event, req) => {
+    const { dateISO, blockCode, username, password, rows } = req;
+    const session = await loginToOpera({ username, password });
+    activeSession = session;
+    try {
+        await navigateToManageBlock(session.page);
+        await openManageReservationsForBlock(session.page, {
+            blockCode,
+        });
+        const results = [];
+        const total = rows.length * 2;
+        let rowIndex = 0;
+        for (const row of rows) {
+            rowIndex++;
+            try {
+                event.sender.send('applyProgress', {
+                    step: 'UPDATE',
+                    message: `Processing room ${row.roomNo ?? 'Unassigned'} (${row.currentName} → ${row.newName ?? '?'})…`,
+                    reservationId: row.reservationId,
+                    roomNo: row.roomNo ?? null,
+                    current: rowIndex,
+                    total,
+                });
+            }
+            catch { /* window closed */ }
+            if (!row.apply) {
+                results.push({
+                    rowId: row.rowId,
+                    reservationId: row.reservationId,
+                    roomNo: row.roomNo ?? null,
+                    beforeName: row.currentName,
+                    afterName: row.currentName,
+                    result: 'SKIPPED',
+                    resultMessage: 'Apply unchecked',
+                });
+                continue;
+            }
+            if (row.status !== 'READY') {
+                results.push({
+                    rowId: row.rowId,
+                    reservationId: row.reservationId,
+                    roomNo: row.roomNo ?? null,
+                    beforeName: row.currentName,
+                    afterName: row.currentName,
+                    result: 'FAILED',
+                    resultMessage: `Row status is ${row.status}, not READY`,
+                });
+                continue;
+            }
+            if (!row.newName?.trim()) {
+                results.push({
+                    rowId: row.rowId,
+                    reservationId: row.reservationId,
+                    roomNo: row.roomNo ?? null,
+                    beforeName: row.currentName,
+                    afterName: row.currentName,
+                    result: 'FAILED',
+                    resultMessage: 'No new name provided',
+                });
+                continue;
+            }
+            const parsed = parseOperaGuestName(row.newName);
+            if (!parsed.ok) {
+                results.push({
+                    rowId: row.rowId,
+                    reservationId: row.reservationId,
+                    roomNo: row.roomNo ?? null,
+                    beforeName: row.currentName,
+                    afterName: row.newName,
+                    result: 'FAILED',
+                    resultMessage: parsed.error,
+                });
+                continue;
+            }
+            try {
+                await applyReservationNameInOpera(session.page, {
+                    reservationId: row.reservationId,
+                    expectedCurrentName: row.currentName,
+                    expectedRoomNo: row.roomNo ?? null,
+                    firstName: parsed.firstName,
+                    lastName: parsed.lastName,
+                });
+                results.push({
+                    rowId: row.rowId,
+                    reservationId: row.reservationId,
+                    roomNo: row.roomNo ?? null,
+                    beforeName: row.currentName,
+                    afterName: row.newName,
+                    result: 'UPDATED',
+                });
+            }
+            catch (error) {
+                results.push({
+                    rowId: row.rowId,
+                    reservationId: row.reservationId,
+                    roomNo: row.roomNo ?? null,
+                    beforeName: row.currentName,
+                    afterName: row.newName,
+                    result: 'FAILED',
+                    resultMessage: error instanceof Error ? error.message : 'Unknown apply error',
+                });
+            }
+            const r = results[results.length - 1];
+            try {
+                event.sender.send('applyProgress', {
+                    step: 'UPDATE',
+                    message: r.result === 'UPDATED'
+                        ? `✓ Room ${r.roomNo ?? 'Unassigned'} → ${r.afterName}`
+                        : r.result === 'SKIPPED'
+                            ? `— Room ${r.roomNo ?? 'Unassigned'} skipped`
+                            : `✗ Room ${r.roomNo ?? 'Unassigned'} — ${r.resultMessage ?? 'Unknown error'}`,
+                    reservationId: r.reservationId,
+                    roomNo: r.roomNo,
+                    status: r.result,
+                    current: rowIndex,
+                    total,
+                });
+            }
+            catch { /* window closed */ }
+        }
+        return {
+            dateISO,
+            blockCode,
+            results,
+        };
+    }
+    finally {
+        activeSession = null;
+        await session.browser.close().catch(() => { });
+    }
+});
+ipcMain.handle('verifyRun', async (_event, req) => {
+    const { dateISO, blockCode, username, password, rows } = req;
+    const session = await loginToOpera({ username, password });
+    activeSession = session;
+    try {
+        await navigateToManageBlock(session.page);
+        await openManageReservationsForBlock(session.page, {
+            blockCode,
+        });
+        const freshReservations = await fetchOperaReservationsFromManageReservations(session.page, {
+            placeholderOnly: false,
+        });
+        const reservationById = new Map(freshReservations.map((reservation) => [
+            reservation.reservationId,
+            reservation,
+        ]));
+        const results = rows.map((row) => {
+            if (!row.apply) {
+                return {
+                    rowId: row.rowId,
+                    reservationId: row.reservationId,
+                    roomNo: row.roomNo ?? null,
+                    beforeName: row.currentName,
+                    intendedName: row.currentName,
+                    afterName: row.currentName,
+                    result: 'SKIPPED',
+                    resultMessage: 'Apply unchecked',
+                };
+            }
+            const rawName = row.newName?.trim() ?? '';
+            const parsed = parseOperaGuestName(rawName);
+            const intendedName = parsed.ok
+                ? `${parsed.lastName}, ${parsed.firstName}`
+                : rawName;
+            if (!intendedName) {
+                return {
+                    rowId: row.rowId,
+                    reservationId: row.reservationId,
+                    roomNo: row.roomNo ?? null,
+                    beforeName: row.currentName,
+                    intendedName: '',
+                    afterName: null,
+                    result: 'FAILED',
+                    resultMessage: 'No intended name provided',
+                };
+            }
+            const freshReservation = reservationById.get(row.reservationId);
+            if (!freshReservation) {
+                return {
+                    rowId: row.rowId,
+                    reservationId: row.reservationId,
+                    roomNo: row.roomNo ?? null,
+                    beforeName: row.currentName,
+                    intendedName,
+                    afterName: null,
+                    result: 'FAILED',
+                    resultMessage: 'Reservation not found during verify',
+                };
+            }
+            const afterName = freshReservation.currentName;
+            if (afterName === intendedName) {
+                return {
+                    rowId: row.rowId,
+                    reservationId: row.reservationId,
+                    roomNo: freshReservation.roomNo ?? row.roomNo ?? null,
+                    beforeName: row.currentName,
+                    intendedName,
+                    afterName,
+                    result: 'UPDATED',
+                };
+            }
+            return {
+                rowId: row.rowId,
+                reservationId: row.reservationId,
+                roomNo: freshReservation.roomNo ?? row.roomNo ?? null,
+                beforeName: row.currentName,
+                intendedName,
+                afterName,
+                result: 'MISMATCH',
+                resultMessage: 'Opera name does not match intended name',
+            };
+        });
+        return {
+            dateISO,
+            blockCode,
+            results,
+        };
+    }
+    finally {
+        activeSession = null;
+        await session.browser.close().catch(() => { });
+    }
+});
+ipcMain.handle('cancelRun', async () => {
+    if (activeSession) {
+        await activeSession.browser.close().catch(() => { });
+        activeSession = null;
+    }
+});
+ipcMain.handle('saveLog', (_event, req) => {
+    const { dateISO, blockCode, verifyResults } = req;
+    const logsDir = path.join(app.getPath('documents'), 'Crew Rename Logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `crew-rename-${dateISO}-${blockCode}-${timestamp}.json`;
+    const savedPath = path.join(logsDir, filename);
+    fs.writeFileSync(savedPath, JSON.stringify({ dateISO, blockCode, savedAt: new Date().toISOString(), verifyResults }, null, 2), 'utf-8');
+    return { savedPath };
+});
+ipcMain.handle('saveCredentials', async (_event, req) => {
+    await keytar.setPassword(KEYTAR_SERVICE, req.username, req.password);
+});
+ipcMain.handle('loadCredentials', async () => {
+    const creds = await keytar.findCredentials(KEYTAR_SERVICE);
     return {
-        dateISO,
-        blockCode,
-        rows: [],
+        accounts: creds.map((c) => ({ username: c.account, password: c.password })),
     };
+});
+// ── Sign-off sheet helpers ────────────────────────────────────────────────────
+function escHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function formatSheetDate(dateISO) {
+    const d = new Date(dateISO + 'T00:00:00');
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+function sortSheetRows(rows) {
+    return [...rows].sort((a, b) => {
+        const na = parseInt(a.roomNo ?? '', 10);
+        const nb = parseInt(b.roomNo ?? '', 10);
+        if (!isNaN(na) && !isNaN(nb))
+            return nb - na;
+        return (a.roomNo ?? '').localeCompare(b.roomNo ?? '');
+    });
+}
+function buildCrewTableHtml(rows, hasRank) {
+    const sorted = sortSheetRows(rows);
+    const rankCol = hasRank ? '<th style="width:60px">Rank</th>' : '';
+    const bodyRows = sorted.map((r, i) => {
+        const rankCell = hasRank ? `<td>${escHtml(r.rank ?? '')}</td>` : '';
+        const displayName = escHtml(r.name.replace(',', '').replace(/\s+/g, ' ').trim());
+        return `<tr>
+      <td style="width:40px;text-align:center">${i + 1}</td>
+      ${rankCell}
+      <td>${displayName}</td>
+      <td style="width:80px">${escHtml(r.roomNo ?? 'TBA')}</td>
+      <td style="width:200px"></td>
+    </tr>`;
+    }).join('');
+    return `<table class="crew">
+    <thead><tr>
+      <th style="width:40px;text-align:center">#</th>
+      ${rankCol}
+      <th>Name</th>
+      <th style="width:80px">Room</th>
+      <th style="width:200px">Signature</th>
+    </tr></thead>
+    <tbody>${bodyRows}</tbody>
+  </table>`;
+}
+function addDays(dateISO, days) {
+    const d = new Date(dateISO + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+}
+function buildSignOffHtml(req) {
+    const arrivalDisplay = formatSheetDate(req.dateISO);
+    const departureDisplay = formatSheetDate(addDays(req.dateISO, 2));
+    const hasRank = [...req.cabinRows, ...req.techRows].some(r => r.rank);
+    const wakeUp = req.wakeUpCall ? escHtml(req.wakeUpCall) : '&nbsp;';
+    const deptTime = req.departureTime ? escHtml(req.departureTime) : '&nbsp;';
+    const infoRows = [
+        `<tr><td class="lbl">Arrival Date:</td><td>${escHtml(arrivalDisplay)}</td><td class="hi"><b>Wake-Up Call:</b> ${wakeUp}</td></tr>`,
+        `<tr><td class="lbl">Departure Date:</td><td>${escHtml(departureDisplay)}</td><td class="hi"><b>Departure Time:</b> ${deptTime}</td></tr>`,
+    ].join('');
+    const totalRows = req.cabinRows.length + req.techRows.length;
+    const splitPages = totalRows > 20 && req.techRows.length > 0 && req.cabinRows.length > 0;
+    const headerHtml = `<div class="header">
+  <div class="header-brand">RYDGES AUCKLAND</div>
+  <div class="header-title">SINGAPORE AIRLINES CREW</div>
+  <div class="header-brand">SINGAPORE AIRLINES</div>
+</div>`;
+    const techSection = req.techRows.length > 0
+        ? `<div class="section-title">Tech Crew</div>${buildCrewTableHtml(req.techRows, hasRank)}`
+        : '';
+    const cabinSection = req.cabinRows.length > 0
+        ? `<div class="section-title">Cabin Crew</div>${buildCrewTableHtml(req.cabinRows, hasRank)}`
+        : '';
+    const bodyContent = splitPages
+        ? `<div style="page-break-after:always">
+${headerHtml}
+<table class="info"><tbody>${infoRows}</tbody></table>
+${techSection}
+</div>
+<div>
+${headerHtml}
+<table class="info"><tbody>${infoRows}</tbody></table>
+${cabinSection}
+</div>`
+        : `${headerHtml}
+<table class="info"><tbody>${infoRows}</tbody></table>
+${techSection}
+${cabinSection}`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+@page{size:A4;margin:12mm}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,Helvetica,sans-serif;font-size:10.5pt;color:#000}
+.header{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:3px solid #1c3054;margin-bottom:10px}
+.header-brand{font-size:12pt;font-weight:bold;color:#1c3054}
+.header-title{font-size:14pt;font-weight:bold;text-align:center}
+table.info{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:10pt}
+table.info td{padding:4px 8px;border:1px solid #ccc}
+.lbl{font-weight:bold;width:140px;background:#f0f0f0}
+.hi{background:#f7941d;width:200px}
+.section-title{font-size:11pt;font-weight:bold;margin:14px 0 6px;color:#1c3054;border-bottom:1px solid #1c3054;padding-bottom:3px}
+table.crew{width:100%;border-collapse:collapse;font-size:10pt}
+table.crew th{background:#1c3054;color:#fff;padding:6px 8px;text-align:left}
+table.crew td{padding:5px 8px;border-bottom:1px solid #ddd;height:30px}
+table.crew tr:nth-child(even) td{background:#f7f7f7}
+.footer{margin-top:16px;font-size:8pt;color:#888;text-align:right}
+</style></head><body>
+${bodyContent}
+<div class="footer">Generated by Hotel Crew Tool &bull; ${new Date().toLocaleString()}</div>
+</body></html>`;
+}
+async function saveSignOffPdf(req) {
+    const html = buildSignOffHtml(req);
+    const win = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
+    try {
+        await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+        const pdfBuffer = await win.webContents.printToPDF({ landscape: false, pageSize: 'A4', printBackground: true });
+        const logsDir = path.join(app.getPath('documents'), 'Crew Rename Logs');
+        fs.mkdirSync(logsDir, { recursive: true });
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `crew-signoff-${req.dateISO}-${req.blockCode}-${timestamp}.pdf`;
+        const savedPath = path.join(logsDir, filename);
+        fs.writeFileSync(savedPath, pdfBuffer);
+        return savedPath;
+    }
+    finally {
+        win.close();
+    }
+}
+ipcMain.handle('generateSignOffSheet', async (_event, req) => {
+    if (req.cabinRows.length === 0 && req.techRows.length === 0)
+        return null;
+    const savedPath = await saveSignOffPdf(req);
+    return { savedPath };
+});
+ipcMain.handle('fetchAndGenerateSheet', async (_event, req) => {
+    const { dateISO, blockCode, username, password, wakeUpCall, departureTime, txtContent } = req;
+    const session = await loginToOpera({ username, password });
+    activeSession = session;
+    try {
+        await navigateToManageBlock(session.page);
+        await openManageReservationsForBlock(session.page, { blockCode });
+        const reservations = await fetchOperaReservationsFromManageReservations(session.page, { placeholderOnly: false });
+        // Placeholder name check
+        const PLACEHOLDERS = [
+            'SINGAPORE AIRLINES CREW',
+            'SINGAPORE AIRLINES CREW (NIGHT)',
+            'SINGAPORE AIRLINES TECH CREW',
+            'SINGAPORE AIRLINES TECH CREW (NIGHT)',
+        ];
+        const isPlaceholder = (name) => PLACEHOLDERS.includes(name.toUpperCase().trim());
+        const named = reservations.filter(r => r.currentName && !isPlaceholder(r.currentName));
+        // If TXT provided, use it to determine TECH/CABIN and rank
+        if (txtContent) {
+            const parsed = parseTxt(txtContent);
+            const crewMap = new Map();
+            for (const m of parsed.cabinCrew)
+                crewMap.set(m.name.toUpperCase(), { rank: m.rank, section: 'CABIN' });
+            for (const m of parsed.techCrew)
+                crewMap.set(m.name.toUpperCase(), { rank: m.rank, section: 'TECH' });
+            const cabinRows = [];
+            const techRows = [];
+            for (const r of named) {
+                // Opera name is "LASTNAME, FIRSTNAME" — normalise to "LASTNAME FIRSTNAME"
+                const normName = r.currentName.replace(',', '').replace(/\s+/g, ' ').trim().toUpperCase();
+                const info = crewMap.get(normName);
+                const row = { roomNo: r.roomNo ?? null, name: r.currentName, rank: info?.rank };
+                if (info?.section === 'TECH')
+                    techRows.push(row);
+                else
+                    cabinRows.push(row);
+            }
+            if (cabinRows.length === 0 && techRows.length === 0)
+                return null;
+            return { savedPath: await saveSignOffPdf({ dateISO, blockCode, wakeUpCall, departureTime, cabinRows, techRows }) };
+        }
+        // No TXT — single combined list (put everything in cabinRows for layout)
+        const cabinRows = named.map(r => ({ roomNo: r.roomNo ?? null, name: r.currentName }));
+        if (cabinRows.length === 0)
+            return null;
+        return { savedPath: await saveSignOffPdf({ dateISO, blockCode, wakeUpCall, departureTime, cabinRows, techRows: [] }) };
+    }
+    finally {
+        activeSession = null;
+        await session.browser.close().catch(() => { });
+    }
 });

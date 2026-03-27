@@ -1,6 +1,21 @@
 {
+  "main": "electron/main.js",
+  "build": {
+    "appId": "com.rydges.crewrentool",
+    "productName": "Crew Rename Tool",
+    "files": [
+      "dist/**",
+      "electron/**/*.js",
+      "electron/preload.cjs"
+    ],
+    "mac": {
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  },
   "name": "renderer",
-  "main": "electron/main.mjs",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -19,6 +34,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "electron-store": "^11.0.2",
     "keytar": "^7.9.0",
+    "playwright": "^1.58.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

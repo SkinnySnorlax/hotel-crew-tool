@@ -1,35 +1,58 @@
 import type { MappingRow } from '../types/mapping';
 
 type VerifyRow = MappingRow & {
-  beforeName: string; // what it was before apply
-  afterName: string | null; // what Opera shows after apply (mocked for now)
-  result: 'UPDATED' | 'SKIPPED' | 'FAILED';
+  beforeName: string;
+  afterName: string | null;
+  result: 'UPDATED' | 'SKIPPED' | 'FAILED' | 'MISMATCH';
   resultMessage?: string;
 };
 
 type Props = {
   verifyRows: VerifyRow[];
-  setVerifyRows: React.Dispatch<React.SetStateAction<VerifyRow[]>>;
-
-  onApplyCorrections: () => void; // later: run small apply pass
+  onApplyCorrections: () => void;
   onFinish: () => void;
   onBackToReview: () => void;
 };
 
+function getResultLabel(result: VerifyRow['result']): string {
+  switch (result) {
+    case 'UPDATED':
+      return 'Verified';
+    case 'SKIPPED':
+      return 'Skipped';
+    case 'FAILED':
+      return 'Failed';
+    case 'MISMATCH':
+      return 'Mismatch';
+    default:
+      return result;
+  }
+}
+
+function getResultStyle(result: VerifyRow['result']): React.CSSProperties {
+  switch (result) {
+    case 'UPDATED':
+      return { color: '#0a7f3f', fontWeight: 600 };
+    case 'SKIPPED':
+      return { color: '#666' };
+    case 'FAILED':
+      return { color: '#b42318', fontWeight: 600 };
+    case 'MISMATCH':
+      return { color: '#b54708', fontWeight: 600 };
+    default:
+      return {};
+  }
+}
+
 export function VerifyPage({
   verifyRows,
-  setVerifyRows,
   onApplyCorrections,
   onFinish,
   onBackToReview,
 }: Props) {
-  const patch = (rowId: string, patch: Partial<VerifyRow>) => {
-    setVerifyRows(
-      verifyRows.map((r) => (r.rowId === rowId ? { ...r, ...patch } : r)),
-    );
-  };
-
-  const issues = verifyRows.filter((r) => r.result !== 'UPDATED');
+  const issues = verifyRows.filter(
+    (r) => r.result === 'FAILED' || r.result === 'MISMATCH',
+  );
 
   return (
     <div>
@@ -39,7 +62,7 @@ export function VerifyPage({
             Back to Review
           </button>
           <button onClick={onApplyCorrections} style={{ padding: 8 }}>
-            Apply Corrections
+            Retry Failed
           </button>
           <button onClick={onFinish} style={{ padding: 8 }}>
             Finish
@@ -48,11 +71,9 @@ export function VerifyPage({
 
         <div style={{ marginBottom: 10, color: '#555' }}>
           {issues.length === 0 ? (
-            <div>✅ All rows look updated.</div>
+            <div>✅ All rows verified successfully.</div>
           ) : (
-            <div>
-              ⚠️ {issues.length} row(s) need attention (skipped/failed).
-            </div>
+            <div>⚠️ {issues.length} row(s) need attention.</div>
           )}
         </div>
 
@@ -63,7 +84,7 @@ export function VerifyPage({
                 style={{
                   textAlign: 'left',
                   borderBottom: '1px solid #ddd',
-                  width: 90,
+                  width: 120,
                 }}
               >
                 Room
@@ -81,13 +102,10 @@ export function VerifyPage({
                 style={{
                   textAlign: 'left',
                   borderBottom: '1px solid #ddd',
-                  width: 120,
+                  width: 140,
                 }}
               >
                 Result
-              </th>
-              <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd' }}>
-                Fix (optional)
               </th>
             </tr>
           </thead>
@@ -95,41 +113,36 @@ export function VerifyPage({
           <tbody>
             {verifyRows.map((r) => (
               <tr key={r.rowId}>
-                <td style={{ padding: 8 }}>{r.roomNo ?? 'Unassigned'}</td>
+                <td style={{ padding: 8, verticalAlign: 'top' }}>
+                  <div>{r.roomNo ?? 'Unassigned'}</div>
+                  <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                    Res ID: {r.reservationId}
+                  </div>
+                </td>
 
-                <td style={{ padding: 8 }}>{r.beforeName}</td>
+                <td style={{ padding: 8, verticalAlign: 'top' }}>
+                  {r.beforeName}
+                </td>
 
-                <td style={{ padding: 8 }}>{r.newName ?? '—'}</td>
+                <td style={{ padding: 8, verticalAlign: 'top' }}>
+                  {r.newName ?? '—'}
+                </td>
 
-                <td style={{ padding: 8 }}>{r.afterName ?? '—'}</td>
+                <td style={{ padding: 8, verticalAlign: 'top' }}>
+                  {r.afterName ?? '—'}
+                </td>
 
-                <td style={{ padding: 8 }}>
-                  {r.result}
+                <td style={{ padding: 8, verticalAlign: 'top' }}>
+                  <span style={getResultStyle(r.result)}>
+                    {getResultLabel(r.result)}
+                  </span>
                   {r.resultMessage ? ` — ${r.resultMessage}` : ''}
                 </td>
 
-                <td style={{ padding: 8 }}>
-                  <input
-                    value={r.newName ?? ''}
-                    onChange={(e) =>
-                      patch(r.rowId, { newName: e.target.value })
-                    }
-                    placeholder="Type corrected name…"
-                    style={{ width: '100%', padding: 6 }}
-                  />
-                  <div style={{ fontSize: 12, color: '#777', marginTop: 4 }}>
-                    Edit here only if Opera “After” is wrong.
-                  </div>
-                </td>
               </tr>
             ))}
           </tbody>
         </table>
-
-        <div style={{ marginTop: 12, fontSize: 12, color: '#555' }}>
-          Notes: “After (from Opera)” will be real once we connect Playwright
-          re-fetch. For now this is mocked.
-        </div>
       </div>
     </div>
   );
