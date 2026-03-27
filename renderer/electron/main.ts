@@ -41,8 +41,10 @@ let activeSession: { browser: import('playwright').Browser } | null = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 780,
+    width: 1400,
+    height: 900,
+    minWidth: 1100,
+    minHeight: 700,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
