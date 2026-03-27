@@ -4,7 +4,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
-import { chromium } from 'playwright';
 import type {
   PreviewRunRequest,
   PreviewRunResult,
@@ -21,14 +20,6 @@ import type {
   GenerateSheetResult,
   SheetRow,
 } from '../src/types/ipc';
-import { parseTxt } from './preview/parseTxt.js';
-import { buildPreviewRows } from './preview/mapping.js';
-import { fetchOperaReservationsFromManageReservations } from './preview/operaFetch.js';
-import { loginToOpera } from './preview/operaLogin.js';
-import { navigateToManageBlock } from './preview/operaNavigateToManageBlock.js';
-import { openManageReservationsForBlock } from './preview/operaOpenManageReservations.js';
-import { parseOperaGuestName } from './apply/parseOperaGuestName.js';
-import { applyReservationNameInOpera } from './apply/operaApplyReservationName.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,6 +28,7 @@ const BROWSERS_PATH = path.join(app.getPath('userData'), 'pw-browsers');
 process.env.PLAYWRIGHT_BROWSERS_PATH = BROWSERS_PATH;
 
 async function ensureChromium(): Promise<void> {
+  const { chromium } = await import('playwright');
   try {
     if (fs.existsSync(chromium.executablePath())) return;
   } catch {}
@@ -125,6 +117,12 @@ ipcMain.handle(
   'previewRun',
   async (_event, req: PreviewRunRequest): Promise<PreviewRunResult> => {
     const { dateISO, blockCode, txtContent, username, password } = req;
+    const { parseTxt } = await import('./preview/parseTxt.js');
+    const { buildPreviewRows } = await import('./preview/mapping.js');
+    const { loginToOpera } = await import('./preview/operaLogin.js');
+    const { navigateToManageBlock } = await import('./preview/operaNavigateToManageBlock.js');
+    const { openManageReservationsForBlock } = await import('./preview/operaOpenManageReservations.js');
+    const { fetchOperaReservationsFromManageReservations } = await import('./preview/operaFetch.js');
 
     const parsedTxt = parseTxt(txtContent);
 
@@ -167,6 +165,11 @@ ipcMain.handle(
   'applyRun',
   async (event, req: ApplyRunRequest): Promise<ApplyRunResult> => {
     const { dateISO, blockCode, username, password, rows } = req;
+    const { loginToOpera } = await import('./preview/operaLogin.js');
+    const { navigateToManageBlock } = await import('./preview/operaNavigateToManageBlock.js');
+    const { openManageReservationsForBlock } = await import('./preview/operaOpenManageReservations.js');
+    const { parseOperaGuestName } = await import('./apply/parseOperaGuestName.js');
+    const { applyReservationNameInOpera } = await import('./apply/operaApplyReservationName.js');
 
     const session = await loginToOpera({ username, password });
     activeSession = session;
@@ -313,6 +316,11 @@ ipcMain.handle(
   'verifyRun',
   async (_event, req: VerifyRunRequest): Promise<VerifyRunResult> => {
     const { dateISO, blockCode, username, password, rows } = req;
+    const { loginToOpera } = await import('./preview/operaLogin.js');
+    const { navigateToManageBlock } = await import('./preview/operaNavigateToManageBlock.js');
+    const { openManageReservationsForBlock } = await import('./preview/operaOpenManageReservations.js');
+    const { fetchOperaReservationsFromManageReservations } = await import('./preview/operaFetch.js');
+    const { parseOperaGuestName } = await import('./apply/parseOperaGuestName.js');
 
     const session = await loginToOpera({ username, password });
     activeSession = session;
@@ -636,6 +644,11 @@ ipcMain.handle(
   'fetchAndGenerateSheet',
   async (_event, req: FetchAndGenerateSheetRequest): Promise<GenerateSheetResult> => {
     const { dateISO, blockCode, username, password, wakeUpCall, departureTime, txtContent } = req;
+    const { loginToOpera } = await import('./preview/operaLogin.js');
+    const { navigateToManageBlock } = await import('./preview/operaNavigateToManageBlock.js');
+    const { openManageReservationsForBlock } = await import('./preview/operaOpenManageReservations.js');
+    const { fetchOperaReservationsFromManageReservations } = await import('./preview/operaFetch.js');
+    const { parseTxt } = await import('./preview/parseTxt.js');
 
     const session = await loginToOpera({ username, password });
     activeSession = session;
