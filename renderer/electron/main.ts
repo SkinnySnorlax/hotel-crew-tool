@@ -1,8 +1,7 @@
 // electron/main.ts
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, safeStorage } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import type {
   PreviewRunRequest,
@@ -28,10 +27,6 @@ import { navigateToManageBlock } from './preview/operaNavigateToManageBlock.js';
 import { openManageReservationsForBlock } from './preview/operaOpenManageReservations.js';
 import { parseOperaGuestName } from './apply/parseOperaGuestName.js';
 import { applyReservationNameInOpera } from './apply/operaApplyReservationName.js';
-
-const require = createRequire(import.meta.url);
-const keytar = require('keytar') as typeof import('keytar');
-const KEYTAR_SERVICE = 'hotel-crew-tool';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -410,18 +405,30 @@ ipcMain.handle(
   },
 );
 
+function getCredsPath() {
+  return path.join(app.getPath('userData'), 'credentials.json');
+}
+
+function readCredsFile(): Record<string, string> {
+  try { return JSON.parse(fs.readFileSync(getCredsPath(), 'utf-8')); } catch { return {}; }
+}
+
 ipcMain.handle(
   'saveCredentials',
-  async (_event, req: SaveCredentialsRequest): Promise<void> => {
-    await keytar.setPassword(KEYTAR_SERVICE, req.username, req.password);
+  (_event, req: SaveCredentialsRequest): void => {
+    const creds = readCredsFile();
+    creds[req.username] = safeStorage.encryptString(req.password).toString('base64');
+    fs.writeFileSync(getCredsPath(), JSON.stringify(creds), 'utf-8');
   },
 );
 
-ipcMain.handle('loadCredentials', async (): Promise<LoadCredentialsResult> => {
-  const creds = await keytar.findCredentials(KEYTAR_SERVICE);
-  return {
-    accounts: creds.map((c) => ({ username: c.account, password: c.password })),
-  };
+ipcMain.handle('loadCredentials', (): LoadCredentialsResult => {
+  const creds = readCredsFile();
+  const accounts = Object.entries(creds).map(([username, enc]) => ({
+    username,
+    password: safeStorage.decryptString(Buffer.from(enc, 'base64')),
+  }));
+  return { accounts };
 });
 
 // ── Sign-off sheet helpers ────────────────────────────────────────────────────
