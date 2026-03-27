@@ -31,6 +31,10 @@ import { applyReservationNameInOpera } from './apply/operaApplyReservationName.j
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+if (app.isPackaged) {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(process.resourcesPath, 'playwright-browsers');
+}
+
 let mainWindow: BrowserWindow | null = null;
 let activeSession: { browser: import('playwright').Browser } | null = null;
 

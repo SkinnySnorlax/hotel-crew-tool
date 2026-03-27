@@ -8,6 +8,9 @@
       "electron/**/*.js",
       "electron/preload.cjs"
     ],
+    "extraResources": [
+      { "from": "playwright-browsers", "to": "playwright-browsers" }
+    ],
     "mac": {
       "target": "dmg"
     },
