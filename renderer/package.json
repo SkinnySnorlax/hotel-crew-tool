@@ -8,9 +8,7 @@
       "electron/**/*.js",
       "electron/preload.cjs"
     ],
-    "extraResources": [
-      { "from": "playwright-browsers", "to": "playwright-browsers" }
-    ],
+    "asarUnpack": ["**/node_modules/playwright/**"],
     "mac": {
       "target": "dmg"
     },

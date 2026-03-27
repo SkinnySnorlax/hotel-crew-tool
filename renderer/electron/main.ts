@@ -1,8 +1,10 @@
 // electron/main.ts
-import { app, BrowserWindow, ipcMain, safeStorage } from 'electron';
+import { app, BrowserWindow, ipcMain, safeStorage, dialog } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
+import { spawn } from 'node:child_process';
+import { chromium } from 'playwright';
 import type {
   PreviewRunRequest,
   PreviewRunResult,
@@ -31,8 +33,51 @@ import { applyReservationNameInOpera } from './apply/operaApplyReservationName.j
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-if (app.isPackaged) {
-  process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(process.resourcesPath, 'playwright-browsers');
+const BROWSERS_PATH = path.join(app.getPath('userData'), 'pw-browsers');
+process.env.PLAYWRIGHT_BROWSERS_PATH = BROWSERS_PATH;
+
+async function ensureChromium(): Promise<void> {
+  try {
+    if (fs.existsSync(chromium.executablePath())) return;
+  } catch {}
+
+  const setupWin = new BrowserWindow({
+    width: 480, height: 180, frame: false, resizable: false, center: true,
+    webPreferences: { contextIsolation: true },
+  });
+  await setupWin.loadURL(
+    'data:text/html;charset=utf-8,' + encodeURIComponent(
+      `<!DOCTYPE html><html><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#fafafa;font-family:system-ui,sans-serif;text-align:center;color:#333">
+        <div><p style="font-size:15px;font-weight:600;margin:0 0 8px">First-time setup</p>
+        <p style="font-size:13px;color:#666;margin:0">Downloading browser engine (one-time, ~150 MB)…<br>Please wait, this may take a few minutes.</p></div>
+      </body></html>`
+    )
+  );
+
+  const appDir = app.isPackaged
+    ? app.getAppPath().replace('app.asar', 'app.asar.unpacked')
+    : app.getAppPath();
+  const cli = path.join(appDir, 'node_modules', 'playwright', 'cli.js');
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(process.execPath, [cli, 'install', 'chromium'], {
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PLAYWRIGHT_BROWSERS_PATH: BROWSERS_PATH },
+      });
+      proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`Exit code ${code}`)));
+    });
+  } catch (err) {
+    setupWin.close();
+    await dialog.showMessageBox({
+      type: 'error', title: 'Setup Failed',
+      message: 'Failed to download browser engine. Please check your internet connection and restart.',
+      detail: err instanceof Error ? err.message : String(err),
+      buttons: ['Quit'],
+    });
+    app.quit();
+    return;
+  }
+  setupWin.close();
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -63,7 +108,8 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await ensureChromium();
   createWindow();
 
   app.on('activate', () => {

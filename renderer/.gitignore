@@ -10,7 +10,6 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
-playwright-browsers
 *.local
 
 # Electron compiled output (TypeScript sources in electron/ compile in-place)
