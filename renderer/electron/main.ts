@@ -51,19 +51,34 @@ async function ensureChromium(): Promise<void> {
     : app.getAppPath();
   const cli = path.join(appDir, 'node_modules', 'playwright', 'cli.js');
 
+  if (!fs.existsSync(cli)) {
+    setupWin.close();
+    await dialog.showMessageBox({
+      type: 'error', title: 'Setup Failed',
+      message: 'Browser installer not found. Please reinstall the application.',
+      detail: `Expected CLI at: ${cli}`,
+      buttons: ['Quit'],
+    });
+    app.quit();
+    return;
+  }
+
   try {
     await new Promise<void>((resolve, reject) => {
       const proc = spawn(process.execPath, [cli, 'install', 'chromium'], {
         env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PLAYWRIGHT_BROWSERS_PATH: BROWSERS_PATH },
       });
-      proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`Exit code ${code}`)));
+      let stderr = '';
+      proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+      proc.on('error', (err) => reject(new Error(`spawn failed: ${err.message}`)));
+      proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`Exit code ${code}\n${stderr.slice(-2000)}`)));
     });
   } catch (err) {
     setupWin.close();
     await dialog.showMessageBox({
       type: 'error', title: 'Setup Failed',
       message: 'Failed to download browser engine. Please check your internet connection and restart.',
-      detail: err instanceof Error ? err.message : String(err),
+      detail: `CLI: ${cli}\n\n${err instanceof Error ? err.message : String(err)}`,
       buttons: ['Quit'],
     });
     app.quit();

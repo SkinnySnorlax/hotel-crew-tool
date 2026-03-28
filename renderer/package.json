@@ -8,7 +8,10 @@
       "electron/**/*.js",
       "electron/preload.cjs"
     ],
-    "asarUnpack": ["**/node_modules/playwright/**"],
+    "asarUnpack": [
+      "**/node_modules/playwright/**",
+      "**/node_modules/playwright-core/**"
+    ],
     "mac": {
       "target": "dmg"
     },
