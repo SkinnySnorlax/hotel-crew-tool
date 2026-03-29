@@ -45,9 +45,22 @@ export async function navigateToManageBlock(page: Page): Promise<void> {
   }
 
   await blocksMenuItem.waitFor({ state: 'visible', timeout: 30000 });
-  await blocksMenuItem.hover();
 
-  await blocksSubmenuPopup.waitFor({ state: 'visible', timeout: 30000 });
+  // ADF submenus can silently ignore the first interaction.
+  // Retry up to 4 times with a short wait between attempts.
+  let submenuOpened = false;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await blocksMenuItem.click();
+    const visible = await blocksSubmenuPopup
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    if (visible) { submenuOpened = true; break; }
+    await page.waitForTimeout(800);
+  }
+  if (!submenuOpened) {
+    throw new Error('Blocks submenu did not open after multiple click attempts');
+  }
 
   await manageBlockItem.waitFor({ state: 'visible', timeout: 30000 });
   await manageBlockItem.click();
