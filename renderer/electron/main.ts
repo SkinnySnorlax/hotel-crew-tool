@@ -130,7 +130,7 @@ app.on('window-all-closed', () => {
 
 ipcMain.handle(
   'previewRun',
-  async (_event, req: PreviewRunRequest): Promise<PreviewRunResult> => {
+  async (event, req: PreviewRunRequest): Promise<PreviewRunResult> => {
     const { dateISO, blockCode, txtContent, username, password } = req;
     const { parseTxt } = await import('./preview/parseTxt.js');
     const { buildPreviewRows } = await import('./preview/mapping.js');
@@ -139,21 +139,36 @@ ipcMain.handle(
     const { openManageReservationsForBlock } = await import('./preview/operaOpenManageReservations.js');
     const { fetchOperaReservationsFromManageReservations } = await import('./preview/operaFetch.js');
 
-    const parsedTxt = parseTxt(txtContent);
+    const log = (message: string) => {
+      console.log(message);
+      try { event.sender.send('previewLog', { message }); } catch { /* window closed */ }
+    };
 
+    log('[preview] parseTxt starting...');
+    const parsedTxt = parseTxt(txtContent);
+    log('[preview] parseTxt complete');
+
+    log('[preview] loginToOpera starting...');
     const session = await loginToOpera({ username, password });
     activeSession = session;
+    log('[preview] loginToOpera complete');
 
     try {
+      log('[preview] navigateToManageBlock starting...');
       await navigateToManageBlock(session.page);
+      log('[preview] navigateToManageBlock complete');
 
+      log('[preview] openManageReservationsForBlock starting...');
       await openManageReservationsForBlock(session.page, {
         blockCode,
       });
+      log('[preview] openManageReservationsForBlock complete');
 
+      log('[preview] fetchOperaReservations starting...');
       const reservations = await fetchOperaReservationsFromManageReservations(
         session.page,
       );
+      log(`[preview] fetchOperaReservations complete — ${reservations.length} rows`);
 
       const rows = buildPreviewRows(
         reservations.map((r) => ({
@@ -163,6 +178,7 @@ ipcMain.handle(
         })),
         parsedTxt,
       );
+      log(`[preview] buildPreviewRows complete — ${rows.length} rows`);
 
       return {
         dateISO,

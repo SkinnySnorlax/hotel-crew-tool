@@ -27,6 +27,8 @@ declare global {
       loadCredentials: () => Promise<LoadCredentialsResult>;
       onApplyProgress: (callback: (payload: Omit<ProgressEvent, 'ts'>) => void) => void;
       offApplyProgress: () => void;
+      onPreviewLog: (callback: (payload: { message: string }) => void) => void;
+      offPreviewLog: () => void;
       generateSignOffSheet: (req: GenerateSheetRequest) => Promise<GenerateSheetResult>;
       fetchAndGenerateSheet: (req: FetchAndGenerateSheetRequest) => Promise<GenerateSheetResult>;
     };

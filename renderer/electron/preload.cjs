@@ -17,6 +17,12 @@ contextBridge.exposeInMainWorld('operaBridge', {
   offApplyProgress: () => {
     ipcRenderer.removeAllListeners('applyProgress');
   },
+  onPreviewLog: (callback) => {
+    ipcRenderer.on('previewLog', (_event, payload) => callback(payload));
+  },
+  offPreviewLog: () => {
+    ipcRenderer.removeAllListeners('previewLog');
+  },
   generateSignOffSheet: (req) => ipcRenderer.invoke('generateSignOffSheet', req),
   fetchAndGenerateSheet: (req) => ipcRenderer.invoke('fetchAndGenerateSheet', req),
 });

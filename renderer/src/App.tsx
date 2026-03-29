@@ -62,12 +62,19 @@ export default function App() {
 
       pushEvent({ step: 'FETCH', message: 'Fetching reservations from Opera…' });
 
+      window.operaBridge.onPreviewLog?.((payload) => {
+        console.log('[previewLog]', payload.message);
+        pushEvent({ step: 'FETCH', message: payload.message });
+      });
+
       const res = await window.operaBridge.previewRun({
         dateISO: form.dateISO,
         blockCode: form.blockCode,
         txtContent,
         username: form.username,
         password: form.password,
+      }).finally(() => {
+        window.operaBridge?.offPreviewLog?.();
       });
 
       pushEvent({ step: 'DONE', message: `Preview complete — ${res.rows.length} reservation(s) found.` });
