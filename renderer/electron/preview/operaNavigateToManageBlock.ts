@@ -63,7 +63,7 @@ export async function navigateToManageBlock(page: Page): Promise<void> {
   }
 
   await manageBlockItem.waitFor({ state: 'visible', timeout: 30000 });
+  console.log('[nav] manageBlockItem visible, clicking...');
   await manageBlockItem.click();
-
-  await page.waitForLoadState('load');
+  console.log('[nav] manageBlockItem clicked — navigation to Manage Block page initiated');
 }
