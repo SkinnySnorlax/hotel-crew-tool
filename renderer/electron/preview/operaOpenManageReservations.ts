@@ -28,7 +28,7 @@ export async function openManageReservationsForBlock(
   console.log('[open] result row visible');
 
   // Click the I Want To control in the first result row.
-  const iWantToLink = resultRow.locator('a[title=”I Want To…”]').first();
+  const iWantToLink = resultRow.locator('a[title*=”I Want To”]').first();
   await iWantToLink.waitFor({ state: 'visible', timeout: 30000 });
   await iWantToLink.click();
 
