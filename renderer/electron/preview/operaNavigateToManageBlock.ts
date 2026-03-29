@@ -2,8 +2,8 @@
 import type { Page } from 'playwright';
 
 export async function navigateToManageBlock(page: Page): Promise<void> {
-  await page.waitForLoadState('load');
-  // Give ADF time to finish its JS initialisation after load fires.
+  // Give ADF time to finish its JS initialisation.
+  // (Avoiding waitForLoadState — ADF partial-page rendering doesn't reliably re-fire 'load')
   await page.waitForTimeout(1500);
 
   const bookingsMenu = page.locator(

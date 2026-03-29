@@ -30,7 +30,7 @@ export async function fetchOperaReservationsFromManageReservations(
 
   // Wait for the Manage Block Reservation grid to exist.
   const grid = page.locator('[id*="oc_srch_rslts_tbl_tmpl"][id$=":t1"]');
-  await grid.waitFor({ state: 'visible', timeout: 30000 });
+  await grid.waitFor({ state: 'visible', timeout: 60000 });
 
   // Real data rows have _afrrk on the tr.
   const rows = page.locator(
