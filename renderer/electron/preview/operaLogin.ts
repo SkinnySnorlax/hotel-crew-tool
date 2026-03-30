@@ -41,7 +41,7 @@ export async function loginToOpera({
   );
   const signInButton = page.locator('#idcs-signin-basic-signin-form-submit');
 
-  await usernameInput.waitFor({ state: 'visible' });
+  await usernameInput.waitFor({ state: 'visible', timeout: 60000 });
   await usernameInput.fill(username);
   await passwordInput.fill(password);
 
@@ -51,7 +51,7 @@ export async function loginToOpera({
 
   // Wait for login flow / redirects to move off the login URL.
   await page.waitForURL((url) => url.toString() !== beforeUrl, {
-    timeout: 30000,
+    timeout: 60000,
   });
 
   // Let the destination page finish its initial load.
