@@ -6,7 +6,7 @@ import {
 } from 'playwright';
 
 const OPERA_LOGIN_URL =
-  'https://mtca1.oraclehospitality.ap-sydney-1.ocs.oraclecloud.com/EVTEP/operacloud/faces/opera-cloud-index/OperaCloud';
+  'https://mtca1.oraclehospitality.ap-sydney-1.ocs.oraclecloud.com/EVTEP/operacloud/faces/adf.task-flow?adf.tfDoc=%2FWEB-INF%2Ftaskflows%2Fopera-cloud-index.xml&adf.tfId=opera-cloud-index';
 
 export type OperaLoginSession = {
   browser: Browser;

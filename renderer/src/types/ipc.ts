@@ -94,6 +94,7 @@ export type SheetRow = {
   roomNo: string | null;
   name: string;
   rank?: string;
+  order?: number;
 };
 
 export type GenerateSheetRequest = {

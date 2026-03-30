@@ -1,28 +1,92 @@
 // electron/main.ts
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, safeStorage, dialog } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
 import fs from 'node:fs';
-import { parseTxt } from './preview/parseTxt.js';
-import { buildPreviewRows } from './preview/mapping.js';
-import { fetchOperaReservationsFromManageReservations } from './preview/operaFetch.js';
-import { loginToOpera } from './preview/operaLogin.js';
-import { navigateToManageBlock } from './preview/operaNavigateToManageBlock.js';
-import { openManageReservationsForBlock } from './preview/operaOpenManageReservations.js';
-import { parseOperaGuestName } from './apply/parseOperaGuestName.js';
-import { applyReservationNameInOpera } from './apply/operaApplyReservationName.js';
-const require = createRequire(import.meta.url);
-const keytar = require('keytar');
-const KEYTAR_SERVICE = 'hotel-crew-tool';
+import { spawn } from 'node:child_process';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const BROWSERS_PATH = path.join(app.getPath('userData'), 'pw-browsers');
+process.env.PLAYWRIGHT_BROWSERS_PATH = BROWSERS_PATH;
+async function ensureChromium() {
+    const { chromium } = await import('playwright');
+    try {
+        if (fs.existsSync(chromium.executablePath()))
+            return;
+    }
+    catch {
+        /* executablePath throws if not installed — fall through to install */
+    }
+    const setupWin = new BrowserWindow({
+        width: 480,
+        height: 180,
+        frame: false,
+        resizable: false,
+        center: true,
+        webPreferences: { contextIsolation: true },
+    });
+    await setupWin.loadURL('data:text/html;charset=utf-8,' +
+        encodeURIComponent(`<!DOCTYPE html><html><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#fafafa;font-family:system-ui,sans-serif;text-align:center;color:#333">
+        <div><p style="font-size:15px;font-weight:600;margin:0 0 8px">First-time setup</p>
+        <p style="font-size:13px;color:#666;margin:0">Downloading browser engine (one-time, ~150 MB)…<br>Please wait, this may take a few minutes.</p></div>
+      </body></html>`));
+    const appDir = app.isPackaged
+        ? app.getAppPath().replace('app.asar', 'app.asar.unpacked')
+        : app.getAppPath();
+    const cli = path.join(appDir, 'node_modules', 'playwright', 'cli.js');
+    if (!fs.existsSync(cli)) {
+        setupWin.close();
+        await dialog.showMessageBox({
+            type: 'error',
+            title: 'Setup Failed',
+            message: 'Browser installer not found. Please reinstall the application.',
+            detail: `Expected CLI at: ${cli}`,
+            buttons: ['Quit'],
+        });
+        app.quit();
+        return;
+    }
+    try {
+        await new Promise((resolve, reject) => {
+            const proc = spawn(process.execPath, [cli, 'install', 'chromium'], {
+                env: {
+                    ...process.env,
+                    ELECTRON_RUN_AS_NODE: '1',
+                    PLAYWRIGHT_BROWSERS_PATH: BROWSERS_PATH,
+                },
+            });
+            let stderr = '';
+            proc.stderr?.on('data', (d) => {
+                stderr += d.toString();
+            });
+            proc.on('error', (err) => reject(new Error(`spawn failed: ${err.message}`)));
+            proc.on('close', (code) => code === 0
+                ? resolve()
+                : reject(new Error(`Exit code ${code}\n${stderr.slice(-2000)}`)));
+        });
+    }
+    catch (err) {
+        setupWin.close();
+        await dialog.showMessageBox({
+            type: 'error',
+            title: 'Setup Failed',
+            message: 'Failed to download browser engine. Please check your internet connection and restart.',
+            detail: `CLI: ${cli}\n\n${err instanceof Error ? err.message : String(err)}`,
+            buttons: ['Quit'],
+        });
+        app.quit();
+        return;
+    }
+    setupWin.close();
+}
 let mainWindow = null;
 let activeSession = null;
 function createWindow() {
     mainWindow = new BrowserWindow({
-        width: 1200,
-        height: 780,
+        width: 1400,
+        height: 900,
+        minWidth: 1100,
+        minHeight: 700,
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,
@@ -40,7 +104,8 @@ function createWindow() {
         mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
     }
 }
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+    await ensureChromium();
     createWindow();
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0)
@@ -51,22 +116,48 @@ app.on('window-all-closed', () => {
     if (process.platform !== 'darwin')
         app.quit();
 });
-ipcMain.handle('previewRun', async (_event, req) => {
+ipcMain.handle('previewRun', async (event, req) => {
     const { dateISO, blockCode, txtContent, username, password } = req;
+    const { parseTxt } = await import('./preview/parseTxt.js');
+    const { buildPreviewRows } = await import('./preview/mapping.js');
+    const { loginToOpera } = await import('./preview/operaLogin.js');
+    const { navigateToManageBlock } = await import('./preview/operaNavigateToManageBlock.js');
+    const { openManageReservationsForBlock } = await import('./preview/operaOpenManageReservations.js');
+    const { fetchOperaReservationsFromManageReservations } = await import('./preview/operaFetch.js');
+    const log = (message) => {
+        console.log(message);
+        try {
+            event.sender.send('previewLog', { message });
+        }
+        catch {
+            /* window closed */
+        }
+    };
+    log('[preview] parseTxt starting...');
     const parsedTxt = parseTxt(txtContent);
+    log('[preview] parseTxt complete');
+    log('[preview] loginToOpera starting...');
     const session = await loginToOpera({ username, password });
     activeSession = session;
+    log('[preview] loginToOpera complete');
     try {
+        log('[preview] navigateToManageBlock starting...');
         await navigateToManageBlock(session.page);
+        log('[preview] navigateToManageBlock complete');
+        log('[preview] openManageReservationsForBlock starting...');
         await openManageReservationsForBlock(session.page, {
             blockCode,
         });
-        const reservations = await fetchOperaReservationsFromManageReservations(session.page);
+        log('[preview] openManageReservationsForBlock complete');
+        log(`[preview] fetchOperaReservations starting — URL: ${session.page.url()}`);
+        const reservations = await fetchOperaReservationsFromManageReservations(session.page, { log });
+        log(`[preview] fetchOperaReservations complete — ${reservations.length} rows`);
         const rows = buildPreviewRows(reservations.map((r) => ({
             reservationId: r.reservationId,
             roomNo: r.roomNo ?? null,
             currentName: r.currentName,
         })), parsedTxt);
+        log(`[preview] buildPreviewRows complete — ${rows.length} rows`);
         return {
             dateISO,
             blockCode,
@@ -80,6 +171,11 @@ ipcMain.handle('previewRun', async (_event, req) => {
 });
 ipcMain.handle('applyRun', async (event, req) => {
     const { dateISO, blockCode, username, password, rows } = req;
+    const { loginToOpera } = await import('./preview/operaLogin.js');
+    const { navigateToManageBlock } = await import('./preview/operaNavigateToManageBlock.js');
+    const { openManageReservationsForBlock } = await import('./preview/operaOpenManageReservations.js');
+    const { parseOperaGuestName } = await import('./apply/parseOperaGuestName.js');
+    const { applyReservationNameInOpera } = await import('./apply/operaApplyReservationName.js');
     const session = await loginToOpera({ username, password });
     activeSession = session;
     try {
@@ -102,7 +198,9 @@ ipcMain.handle('applyRun', async (event, req) => {
                     total,
                 });
             }
-            catch { /* window closed */ }
+            catch {
+                /* window closed */
+            }
             if (!row.apply) {
                 results.push({
                     rowId: row.rowId,
@@ -196,7 +294,9 @@ ipcMain.handle('applyRun', async (event, req) => {
                     total,
                 });
             }
-            catch { /* window closed */ }
+            catch {
+                /* window closed */
+            }
         }
         return {
             dateISO,
@@ -211,6 +311,11 @@ ipcMain.handle('applyRun', async (event, req) => {
 });
 ipcMain.handle('verifyRun', async (_event, req) => {
     const { dateISO, blockCode, username, password, rows } = req;
+    const { loginToOpera } = await import('./preview/operaLogin.js');
+    const { navigateToManageBlock } = await import('./preview/operaNavigateToManageBlock.js');
+    const { openManageReservationsForBlock } = await import('./preview/operaOpenManageReservations.js');
+    const { fetchOperaReservationsFromManageReservations } = await import('./preview/operaFetch.js');
+    const { parseOperaGuestName } = await import('./apply/parseOperaGuestName.js');
     const session = await loginToOpera({ username, password });
     activeSession = session;
     try {
@@ -318,14 +423,31 @@ ipcMain.handle('saveLog', (_event, req) => {
     fs.writeFileSync(savedPath, JSON.stringify({ dateISO, blockCode, savedAt: new Date().toISOString(), verifyResults }, null, 2), 'utf-8');
     return { savedPath };
 });
-ipcMain.handle('saveCredentials', async (_event, req) => {
-    await keytar.setPassword(KEYTAR_SERVICE, req.username, req.password);
+function getCredsPath() {
+    return path.join(app.getPath('userData'), 'credentials.json');
+}
+function readCredsFile() {
+    try {
+        return JSON.parse(fs.readFileSync(getCredsPath(), 'utf-8'));
+    }
+    catch {
+        return {};
+    }
+}
+ipcMain.handle('saveCredentials', (_event, req) => {
+    const creds = readCredsFile();
+    creds[req.username] = safeStorage
+        .encryptString(req.password)
+        .toString('base64');
+    fs.writeFileSync(getCredsPath(), JSON.stringify(creds), 'utf-8');
 });
-ipcMain.handle('loadCredentials', async () => {
-    const creds = await keytar.findCredentials(KEYTAR_SERVICE);
-    return {
-        accounts: creds.map((c) => ({ username: c.account, password: c.password })),
-    };
+ipcMain.handle('loadCredentials', () => {
+    const creds = readCredsFile();
+    const accounts = Object.entries(creds).map(([username, enc]) => ({
+        username,
+        password: safeStorage.decryptString(Buffer.from(enc, 'base64')),
+    }));
+    return { accounts };
 });
 // ── Sign-off sheet helpers ────────────────────────────────────────────────────
 function escHtml(s) {
@@ -333,10 +455,23 @@ function escHtml(s) {
 }
 function formatSheetDate(dateISO) {
     const d = new Date(dateISO + 'T00:00:00');
-    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    return d.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+    });
 }
 function sortSheetRows(rows) {
     return [...rows].sort((a, b) => {
+        // If both rows have a TXT order, sort by rank position (highest = 0 first)
+        if (a.order !== undefined && b.order !== undefined)
+            return a.order - b.order;
+        // Rows with a TXT order come before unmatched rows
+        if (a.order !== undefined)
+            return -1;
+        if (b.order !== undefined)
+            return 1;
+        // Fallback: sort by room number descending
         const na = parseInt(a.roomNo ?? '', 10);
         const nb = parseInt(b.roomNo ?? '', 10);
         if (!isNaN(na) && !isNaN(nb))
@@ -347,7 +482,8 @@ function sortSheetRows(rows) {
 function buildCrewTableHtml(rows, hasRank) {
     const sorted = sortSheetRows(rows);
     const rankCol = hasRank ? '<th style="width:60px">Rank</th>' : '';
-    const bodyRows = sorted.map((r, i) => {
+    const bodyRows = sorted
+        .map((r, i) => {
         const rankCell = hasRank ? `<td>${escHtml(r.rank ?? '')}</td>` : '';
         const displayName = escHtml(r.name.replace(',', '').replace(/\s+/g, ' ').trim());
         return `<tr>
@@ -357,7 +493,8 @@ function buildCrewTableHtml(rows, hasRank) {
       <td style="width:80px">${escHtml(r.roomNo ?? 'TBA')}</td>
       <td style="width:200px"></td>
     </tr>`;
-    }).join('');
+    })
+        .join('');
     return `<table class="crew">
     <thead><tr>
       <th style="width:40px;text-align:center">#</th>
@@ -380,7 +517,7 @@ function addDays(dateISO, days) {
 function buildSignOffHtml(req) {
     const arrivalDisplay = formatSheetDate(req.dateISO);
     const departureDisplay = formatSheetDate(addDays(req.dateISO, 2));
-    const hasRank = [...req.cabinRows, ...req.techRows].some(r => r.rank);
+    const hasRank = [...req.cabinRows, ...req.techRows].some((r) => r.rank);
     const wakeUp = req.wakeUpCall ? escHtml(req.wakeUpCall) : '&nbsp;';
     const deptTime = req.departureTime ? escHtml(req.departureTime) : '&nbsp;';
     const infoRows = [
@@ -440,10 +577,17 @@ ${bodyContent}
 }
 async function saveSignOffPdf(req) {
     const html = buildSignOffHtml(req);
-    const win = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
+    const win = new BrowserWindow({
+        show: false,
+        webPreferences: { offscreen: true },
+    });
     try {
         await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-        const pdfBuffer = await win.webContents.printToPDF({ landscape: false, pageSize: 'A4', printBackground: true });
+        const pdfBuffer = await win.webContents.printToPDF({
+            landscape: false,
+            pageSize: 'A4',
+            printBackground: true,
+        });
         const logsDir = path.join(app.getPath('documents'), 'Crew Rename Logs');
         fs.mkdirSync(logsDir, { recursive: true });
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -463,7 +607,12 @@ ipcMain.handle('generateSignOffSheet', async (_event, req) => {
     return { savedPath };
 });
 ipcMain.handle('fetchAndGenerateSheet', async (_event, req) => {
-    const { dateISO, blockCode, username, password, wakeUpCall, departureTime, txtContent } = req;
+    const { dateISO, blockCode, username, password, wakeUpCall, departureTime, txtContent, } = req;
+    const { loginToOpera } = await import('./preview/operaLogin.js');
+    const { navigateToManageBlock } = await import('./preview/operaNavigateToManageBlock.js');
+    const { openManageReservationsForBlock } = await import('./preview/operaOpenManageReservations.js');
+    const { fetchOperaReservationsFromManageReservations } = await import('./preview/operaFetch.js');
+    const { parseTxt } = await import('./preview/parseTxt.js');
     const session = await loginToOpera({ username, password });
     activeSession = session;
     try {
@@ -478,22 +627,31 @@ ipcMain.handle('fetchAndGenerateSheet', async (_event, req) => {
             'SINGAPORE AIRLINES TECH CREW (NIGHT)',
         ];
         const isPlaceholder = (name) => PLACEHOLDERS.includes(name.toUpperCase().trim());
-        const named = reservations.filter(r => r.currentName && !isPlaceholder(r.currentName));
+        const named = reservations.filter((r) => r.currentName && !isPlaceholder(r.currentName));
         // If TXT provided, use it to determine TECH/CABIN and rank
         if (txtContent) {
             const parsed = parseTxt(txtContent);
             const crewMap = new Map();
-            for (const m of parsed.cabinCrew)
-                crewMap.set(m.name.toUpperCase(), { rank: m.rank, section: 'CABIN' });
-            for (const m of parsed.techCrew)
-                crewMap.set(m.name.toUpperCase(), { rank: m.rank, section: 'TECH' });
+            for (const [i, m] of parsed.techCrew.entries())
+                crewMap.set(m.name.toUpperCase(), { rank: m.rank, section: 'TECH', order: i });
+            for (const [i, m] of parsed.cabinCrew.entries())
+                crewMap.set(m.name.toUpperCase(), { rank: m.rank, section: 'CABIN', order: i });
             const cabinRows = [];
             const techRows = [];
             for (const r of named) {
                 // Opera name is "LASTNAME, FIRSTNAME" — normalise to "LASTNAME FIRSTNAME"
-                const normName = r.currentName.replace(',', '').replace(/\s+/g, ' ').trim().toUpperCase();
+                const normName = r.currentName
+                    .replace(',', '')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .toUpperCase();
                 const info = crewMap.get(normName);
-                const row = { roomNo: r.roomNo ?? null, name: r.currentName, rank: info?.rank };
+                const row = {
+                    roomNo: r.roomNo ?? null,
+                    name: r.currentName,
+                    rank: info?.rank,
+                    order: info?.order,
+                };
                 if (info?.section === 'TECH')
                     techRows.push(row);
                 else
@@ -501,13 +659,34 @@ ipcMain.handle('fetchAndGenerateSheet', async (_event, req) => {
             }
             if (cabinRows.length === 0 && techRows.length === 0)
                 return null;
-            return { savedPath: await saveSignOffPdf({ dateISO, blockCode, wakeUpCall, departureTime, cabinRows, techRows }) };
+            return {
+                savedPath: await saveSignOffPdf({
+                    dateISO,
+                    blockCode,
+                    wakeUpCall,
+                    departureTime,
+                    cabinRows,
+                    techRows,
+                }),
+            };
         }
         // No TXT — single combined list (put everything in cabinRows for layout)
-        const cabinRows = named.map(r => ({ roomNo: r.roomNo ?? null, name: r.currentName }));
+        const cabinRows = named.map((r) => ({
+            roomNo: r.roomNo ?? null,
+            name: r.currentName,
+        }));
         if (cabinRows.length === 0)
             return null;
-        return { savedPath: await saveSignOffPdf({ dateISO, blockCode, wakeUpCall, departureTime, cabinRows, techRows: [] }) };
+        return {
+            savedPath: await saveSignOffPdf({
+                dateISO,
+                blockCode,
+                wakeUpCall,
+                departureTime,
+                cabinRows,
+                techRows: [],
+            }),
+        };
     }
     finally {
         activeSession = null;
