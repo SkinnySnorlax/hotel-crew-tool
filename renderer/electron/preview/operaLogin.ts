@@ -54,8 +54,10 @@ export async function loginToOpera({
     timeout: 60000,
   });
 
-  // Let the destination page finish its initial load.
-  await page.waitForLoadState('load');
+  // Wait for ADF to finish its XHR-heavy initialisation.
+  // networkidle fires when no requests have been made for 500ms — more
+  // reliable than 'load' for Oracle ADF partial-page rendering.
+  await page.waitForLoadState('networkidle', { timeout: 45000 });
 
   // Safety check: if username field is still visible after redirect, treat as failed.
   const stillOnLogin = await usernameInput.isVisible().catch(() => false);

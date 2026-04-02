@@ -26,9 +26,10 @@ export function useAppState() {
     const d = new Date();
     const dd = String(d.getDate()).padStart(2, '0');
     const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const yy = String(d.getFullYear()).slice(2);
+    const yyyy = String(d.getFullYear());
+    const yy = yyyy.slice(2);
     return {
-      dateISO: d.toISOString().slice(0, 10),
+      dateISO: `${yyyy}-${mm}-${dd}`,
       blockCode: `C-SINA${dd}${mm}${yy}`,
       wakeUpCall: '',
       departureTime: '',

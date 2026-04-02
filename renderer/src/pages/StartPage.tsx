@@ -2,6 +2,11 @@ import React from 'react';
 import type { StartForm } from '../state/appState';
 import type { SavedAccount } from '../types/ipc';
 
+const DEFAULTS = {
+  A: { wakeUpCall: '11:10', departureTime: '12:10' },
+  B: { wakeUpCall: '22:15', departureTime: '23:15' },
+};
+
 function blockCodeOptions(dateISO: string): [string, string] {
   if (!dateISO) return ['C-SINA', 'C-SINB'];
   const [year, month, day] = dateISO.split('-');
@@ -17,8 +22,16 @@ type Props = {
   savedAccounts: SavedAccount[];
 };
 
-export function StartPage({ form, setForm, onPreview, onGenerateSheet, savedAccounts }: Props) {
-  const selectedAccount = savedAccounts.find((a) => a.username === form.username);
+export function StartPage({
+  form,
+  setForm,
+  onPreview,
+  onGenerateSheet,
+  savedAccounts,
+}: Props) {
+  const selectedAccount = savedAccounts.find(
+    (a) => a.username === form.username,
+  );
   const [optA, optB] = blockCodeOptions(form.dateISO);
   const [generatingSheet, setGeneratingSheet] = React.useState(false);
   const [sheetPath, setSheetPath] = React.useState<string | null>(null);
@@ -33,19 +46,32 @@ export function StartPage({ form, setForm, onPreview, onGenerateSheet, savedAcco
     });
   }, [form.dateISO, setForm]);
 
-  // Auto-fill wake-up / departure times based on block code variant
+  // Auto-fill wake-up / departure times based on block code variant,
+  // but preserve any value the user has manually set (i.e. one that
+  // isn't empty and doesn't match the OTHER variant's default).
   React.useEffect(() => {
     setForm((prev) => {
       const isB = prev.blockCode.startsWith('C-SINB');
-      return {
-        ...prev,
-        wakeUpCall: isB ? '22:15' : '12:05',
-        departureTime: isB ? '23:15' : '13:05',
-      };
+      const target = isB ? DEFAULTS.B : DEFAULTS.A;
+      const other = isB ? DEFAULTS.A : DEFAULTS.B;
+      const wakeUpCall =
+        prev.wakeUpCall === '' || prev.wakeUpCall === other.wakeUpCall
+          ? target.wakeUpCall
+          : prev.wakeUpCall;
+      const departureTime =
+        prev.departureTime === '' || prev.departureTime === other.departureTime
+          ? target.departureTime
+          : prev.departureTime;
+      return { ...prev, wakeUpCall, departureTime };
     });
   }, [form.blockCode, setForm]);
 
-  const canPreview = !!(form.txtFile && form.blockCode && form.username && form.password);
+  const canPreview = !!(
+    form.txtFile &&
+    form.blockCode &&
+    form.username &&
+    form.password
+  );
 
   const handleGenerateSheet = async () => {
     setGeneratingSheet(true);
@@ -56,10 +82,14 @@ export function StartPage({ form, setForm, onPreview, onGenerateSheet, savedAcco
       if (p) {
         setSheetPath(p);
       } else {
-        setSheetError('No named reservations found in Opera — sheet not generated.');
+        setSheetError(
+          'No named reservations found in Opera — sheet not generated.',
+        );
       }
     } catch (err) {
-      setSheetError(err instanceof Error ? err.message : 'Sheet generation failed.');
+      setSheetError(
+        err instanceof Error ? err.message : 'Sheet generation failed.',
+      );
     } finally {
       setGeneratingSheet(false);
     }
@@ -68,7 +98,10 @@ export function StartPage({ form, setForm, onPreview, onGenerateSheet, savedAcco
   return (
     <div>
       <form
-        onSubmit={(e) => { e.preventDefault(); if (canPreview) onPreview(); }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canPreview) onPreview();
+        }}
         style={{ padding: 16, maxWidth: 720 }}
       >
         <div style={{ display: 'grid', gap: 12 }}>
@@ -78,14 +111,25 @@ export function StartPage({ form, setForm, onPreview, onGenerateSheet, savedAcco
               <select
                 value={selectedAccount ? form.username : ''}
                 onChange={(e) => {
-                  const acct = savedAccounts.find((a) => a.username === e.target.value);
-                  if (acct) setForm((prev) => ({ ...prev, username: acct.username, password: acct.password }));
+                  const acct = savedAccounts.find(
+                    (a) => a.username === e.target.value,
+                  );
+                  if (acct)
+                    setForm((prev) => ({
+                      ...prev,
+                      username: acct.username,
+                      password: acct.password,
+                    }));
                 }}
                 style={{ display: 'block', width: '100%', padding: 8 }}
               >
-                <option value="" disabled>— select saved account —</option>
+                <option value="" disabled>
+                  — select saved account —
+                </option>
                 {savedAccounts.map((a) => (
-                  <option key={a.username} value={a.username}>{a.username}</option>
+                  <option key={a.username} value={a.username}>
+                    {a.username}
+                  </option>
                 ))}
               </select>
             </label>
@@ -145,20 +189,26 @@ export function StartPage({ form, setForm, onPreview, onGenerateSheet, savedAcco
           </label>
 
           <label>
-            Wake-Up Call (optional)
+            Wake-Up Call (Editable)
             <input
               value={form.wakeUpCall}
-              onChange={(e) => setForm({ ...form, wakeUpCall: e.target.value })}
+              onChange={(e) => {
+                const v = e.target.value;
+                setForm((prev) => ({ ...prev, wakeUpCall: v }));
+              }}
               placeholder="e.g. 06:00"
               style={{ display: 'block', width: '100%', padding: 8 }}
             />
           </label>
 
           <label>
-            Departure Time (optional)
+            Departure Time (Editable)
             <input
               value={form.departureTime}
-              onChange={(e) => setForm({ ...form, departureTime: e.target.value })}
+              onChange={(e) => {
+                const v = e.target.value;
+                setForm((prev) => ({ ...prev, departureTime: v }));
+              }}
               placeholder="e.g. 08:30"
               style={{ display: 'block', width: '100%', padding: 8 }}
             />
@@ -189,9 +239,7 @@ export function StartPage({ form, setForm, onPreview, onGenerateSheet, savedAcco
             </div>
           )}
           {sheetError && (
-            <div style={{ fontSize: 12, color: '#c00' }}>
-              {sheetError}
-            </div>
+            <div style={{ fontSize: 12, color: '#c00' }}>{sheetError}</div>
           )}
 
           <small style={{ color: '#555' }}>
