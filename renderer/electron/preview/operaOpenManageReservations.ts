@@ -34,9 +34,8 @@ export async function openManageReservationsForBlock(
   await iWantToLink.click();
 
   // Popup contains “Manage Reservations”
-  const manageReservationsLink = page.getByRole('link', {
-    name: 'Manage Reservations',
-  });
+  // Using hasText filter to avoid CSS attribute selector rejection on Windows Chromium.
+  const manageReservationsLink = page.locator('a', { hasText: /Manage Reservations/ }).first();
   console.log('[open] waiting for Manage Reservations link...');
   await manageReservationsLink.waitFor({ state: 'visible', timeout: 30000 });
   await manageReservationsLink.click();
