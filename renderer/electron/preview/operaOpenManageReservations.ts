@@ -31,13 +31,25 @@ export async function openManageReservationsForBlock(
   // Using getByTitle regex to avoid CSS attribute selector issues on Windows Chromium.
   const iWantToLink = resultRow.getByTitle(/I Want To/).first();
   await iWantToLink.waitFor({ state: 'visible', timeout: 30000 });
-  await iWantToLink.click();
 
   // Popup contains “Manage Reservations”
   // Using hasText filter to avoid CSS attribute selector rejection on Windows Chromium.
+  // ADF popups can swallow a click if the overlay hasn't fully initialised — retry up to 4 times.
   const manageReservationsLink = page.locator('a', { hasText: /Manage Reservations/ }).first();
+  let popupOpened = false;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await iWantToLink.click();
+    const visible = await manageReservationsLink
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    if (visible) { popupOpened = true; break; }
+    await page.waitForTimeout(800);
+  }
+  if (!popupOpened) {
+    throw new Error('Manage Reservations popup did not open after multiple attempts');
+  }
   console.log('[open] waiting for Manage Reservations link...');
-  await manageReservationsLink.waitFor({ state: 'visible', timeout: 30000 });
   await manageReservationsLink.click();
   console.log('[open] Manage Reservations clicked');
 }
