@@ -34,8 +34,9 @@ export async function openManageReservationsForBlock(
   await page.waitForTimeout(300);
 
   // Click the I Want To control in the first result row.
-  // Using getByTitle regex to avoid CSS attribute selector issues on Windows Chromium.
-  const iWantToLink = resultRow.getByTitle(/I Want To/).first();
+  // Scope to oc_srch_rslts_lst_tmpl to target the row-level link, not the block-level
+  // I Want To that sits outside the results list and shows a different popup.
+  const iWantToLink = page.locator('[id*="oc_srch_rslts_lst_tmpl"]').getByTitle(/I Want To/).first();
   await iWantToLink.waitFor({ state: 'visible', timeout: 30000 });
   await page.waitForTimeout(500);
 
