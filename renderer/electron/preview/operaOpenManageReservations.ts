@@ -27,6 +27,12 @@ export async function openManageReservationsForBlock(
   await resultRow.waitFor({ state: 'visible', timeout: 30000 });
   console.log('[open] result row visible');
 
+  // Select the row first — ADF only shows "Manage Reservations" in the I Want To menu
+  // when the row is selected. Clicking the row without force triggers the overlay issue,
+  // so use force to bypass the ADF glass pane.
+  await resultRow.click({ force: true });
+  await page.waitForTimeout(300);
+
   // Click the I Want To control in the first result row.
   // Using getByTitle regex to avoid CSS attribute selector issues on Windows Chromium.
   const iWantToLink = resultRow.getByTitle(/I Want To/).first();
