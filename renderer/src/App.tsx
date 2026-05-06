@@ -42,6 +42,20 @@ export default function App() {
     }
   };
 
+  const onSaveAccount = async () => {
+    if (!form.username || !form.password) return;
+    await window.operaBridge?.saveCredentials?.({ username: form.username, password: form.password });
+    setSavedAccounts((prev) => {
+      const idx = prev.findIndex((a) => a.username === form.username);
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = { username: form.username, password: form.password };
+        return updated;
+      }
+      return [...prev, { username: form.username, password: form.password }];
+    });
+  };
+
   const onPreview = async () => {
     if (!form.txtFile) {
       alert('Please choose a TXT file.');
@@ -354,7 +368,7 @@ export default function App() {
   if (step === 'START') {
     return (
       <AppShell step="START" title="Start">
-        <StartPage form={form} setForm={setForm} onPreview={onPreview} onGenerateSheet={generateSheetFromStart} savedAccounts={savedAccounts} />
+        <StartPage form={form} setForm={setForm} onPreview={onPreview} onGenerateSheet={generateSheetFromStart} onSaveAccount={onSaveAccount} savedAccounts={savedAccounts} />
       </AppShell>
     );
   }

@@ -19,6 +19,7 @@ type Props = {
   setForm: React.Dispatch<React.SetStateAction<StartForm>>;
   onPreview: () => Promise<void>;
   onGenerateSheet: () => Promise<string | null>;
+  onSaveAccount: () => Promise<void>;
   savedAccounts: SavedAccount[];
 };
 
@@ -27,12 +28,15 @@ export function StartPage({
   setForm,
   onPreview,
   onGenerateSheet,
+  onSaveAccount,
   savedAccounts,
 }: Props) {
   const selectedAccount = savedAccounts.find(
     (a) => a.username === form.username,
   );
   const [optA, optB] = blockCodeOptions(form.dateISO);
+  const [savingAccount, setSavingAccount] = React.useState(false);
+  const [accountSaved, setAccountSaved] = React.useState(false);
   const [generatingSheet, setGeneratingSheet] = React.useState(false);
   const [sheetPath, setSheetPath] = React.useState<string | null>(null);
   const [sheetError, setSheetError] = React.useState<string | null>(null);
@@ -187,6 +191,27 @@ export function StartPage({
               style={{ display: 'block', width: '100%', padding: 8 }}
             />
           </label>
+
+          {form.username && form.password && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                type="button"
+                disabled={savingAccount}
+                onClick={async () => {
+                  setSavingAccount(true);
+                  setAccountSaved(false);
+                  await onSaveAccount();
+                  setSavingAccount(false);
+                  setAccountSaved(true);
+                  setTimeout(() => setAccountSaved(false), 2000);
+                }}
+                style={{ padding: '6px 12px', cursor: 'pointer' }}
+              >
+                {savingAccount ? 'Saving…' : 'Save Account'}
+              </button>
+              {accountSaved && <span style={{ fontSize: 12, color: '#080' }}>Saved!</span>}
+            </div>
+          )}
 
           <label>
             Wake-Up Call (Editable)
