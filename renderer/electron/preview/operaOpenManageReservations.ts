@@ -31,6 +31,7 @@ export async function openManageReservationsForBlock(
   // Using getByTitle regex to avoid CSS attribute selector issues on Windows Chromium.
   const iWantToLink = resultRow.getByTitle(/I Want To/).first();
   await iWantToLink.waitFor({ state: 'visible', timeout: 30000 });
+  await page.waitForTimeout(500);
 
   // Popup contains “Manage Reservations”
   // Using hasText filter to avoid CSS attribute selector rejection on Windows Chromium.
