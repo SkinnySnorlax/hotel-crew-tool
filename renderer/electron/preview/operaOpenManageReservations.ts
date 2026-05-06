@@ -39,7 +39,7 @@ export async function openManageReservationsForBlock(
   const manageReservationsLink = page.locator('a', { hasText: /Manage Reservations/ }).first();
   let popupOpened = false;
   for (let attempt = 0; attempt < 4; attempt++) {
-    await iWantToLink.click();
+    await iWantToLink.click({ force: true });
     const visible = await manageReservationsLink
       .waitFor({ state: 'visible', timeout: 5000 })
       .then(() => true)
